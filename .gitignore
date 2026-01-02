@@ -167,5 +167,7 @@ cython_debug/
 
 
 # Ignore Input & Output Directory
-data/exports
-data/raw
+data/raw/*
+data/raw/.gitkeep
+data/exports/*
+data/exports/.gitkeep
