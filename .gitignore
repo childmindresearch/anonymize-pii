@@ -167,7 +167,14 @@ cython_debug/
 
 
 # Ignore Input & Output Directory
+# Ignore everything inside data/raw directory
 data/raw/*
+
+# Exception rule: don't ignore the data/raw directory itself (this ensures the directory is visible to Git, even if empty)
 !data/raw/.gitkeep
+
+# Ignore everything inside data/exports directory
 data/exports/*
-!data/exports/.gitkeep
+
+# Exception rule: don't ignore the data/exports directory itself (this ensures the directory is visible to Git, even if empty)
+!data/exports/
