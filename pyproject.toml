@@ -1,0 +1,51 @@
+[project]
+name = "app-name"
+version = "0.1.0"
+description = "A beautiful description."
+authors = [
+  {name = "CMI DAIR", email = "dair@childmind.org"}
+]
+license = "LGPL-2.1-only"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3.4",
+  "mypy>=1.13.0",
+  "pre-commit>=4.0.1",
+  "pytest-cov>=6.0.0",
+  "ruff>=0.8.1",
+  "deptry>=0.23.0"
+]
+docs = ["pdoc>=15.0.0"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.mypy]
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 88
+indent-width = 4
+src = ["src"]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["ANN", "D", "E", "F", "I"]
+ignore = []
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = []
+
+[build-system]
+requires = ["uv_build>=0.9.3,<0.10.0"]
+build-backend = "uv_build"
