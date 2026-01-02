@@ -177,4 +177,4 @@ data/raw/*
 data/exports/*
 
 # Exception rule: don't ignore the data/exports directory itself (this ensures the directory is visible to Git, even if empty)
-!data/exports/
+!data/exports/.gitkeep
