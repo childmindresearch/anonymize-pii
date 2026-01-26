@@ -1,6 +1,6 @@
 
 
-from config import configs, gliner_recognizer, Entities, timewords, generalwords, skiplist, anonymize_location, replacement
+from config import configs, GlinerRecognizer, Entities, timewords, generalwords, skiplist, anonymize_location, replacement
 
 import os
 import json
@@ -8,11 +8,13 @@ import csv
 import re
 import spacy
 import textwrap
+from collections import defaultdict
 
 from presidio_analyzer.nlp_engine import NlpEngineProvider, NlpEngine, SpacyNlpEngine, NerModelConfiguration
 from presidio_analyzer import AnalyzerEngine, PatternRecognizer, Pattern
 from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
+
 
 
 
@@ -58,37 +60,25 @@ def SaveOutputs(data, filename):
 # NLP Filtering and Cleanup Functions
 ##############################################################################################
 
+
 # Add a time bound term skiplist
 def cleantime(text):
-    words = re.split(r'[ -/]+', text)
-    flag=0
-    for word in words:
-        if word.lower() in timewords:
-            flag+=1
-        else:
-            continue
-    return flag
+    # Splits by characters and counts occurrences of timewords
+    words = re.split(r'[ -/]+', text.lower())
+    return sum(1 for word in words if word in timewords)
+
 
 # Add a common term skiplist
 def cleangeneral(text):
-    words = text.split()
-    flag=0
-    for word in words:
-        if word.lower() in generalwords:
-            flag+=1
-        else:
-            continue
-    return flag
+    # Standard split and count occurrences of generalwords
+    return sum(1 for word in text.lower().split() if word in generalwords)
 
 def checkskiplist(text):
-    if text.lower() in skiplist:
-        flag=1
-    else:
-        flag=0
-    return flag
+    # Returns 1 if text is in list, else 0
+    return int(text.lower() in skiplist)
 
 
-def chunk_text_textwrap(text, max_length=384):
+def chunk_text_textwrap(text, max_length=2000):
   """
   Splits text into chunks of a maximum character length without breaking words.
   """
@@ -107,22 +97,42 @@ def chunk_text_textwrap(text, max_length=384):
 # Core Functions
 ##############################################################################################
 
-
-# Processes one document at a time
+# Loads Documents
 # Returns dict with {[idx]:[{conf1...confn outputs, combined DenyList}]}
-def DocLoader(text):
-    idx_dict={}
-    for config in configs:
-        response = RunAnalyzer(text, config)
-        idx_dict[config.get('name')] = response
-
-    #Merge each config output deny list to single comprehensive DenyList (set)
-    DenyList = {*()} # Start with empty
-    for i, piilist in idx_dict.items():
-        DenyList.update(idx_dict.get(i))
+def DocLoader(text, mask_arg):
+    # Dictionary comprehension for clean initialization
+    idx_dict = {config.get('name'): RunAnalyzer(text, config) for config in configs}
     
-    idx_dict['Deny'] = list(DenyList)
+    # Merge and categorize by type
+
+    idx_dict['Deny'] = MasterEntities(idx_dict)
+    
+    if mask_arg == 'redact':
+        DenyList = {*()} # Start with empty
+        for i, piilist in idx_dict.items():
+            DenyList.update(idx_dict.get(i))    
+        idx_dict['Redact'] = list(DenyList)
+
     return idx_dict
+    
+
+
+# Update Aggregator for Applying Entity Type Labels
+
+def MasterEntities(data):
+    master_dict = {}
+    for sub_dict in data.values():
+        for entity, (e_type, score) in sub_dict.items():
+            if entity not in master_dict or score > master_dict[entity][1]:
+                master_dict[entity] = (e_type, score)
+
+    # Group by entity type using defaultdict
+    type_map = defaultdict(list)
+    for entity, (e_type, _) in master_dict.items():
+        type_map[e_type].append(entity)
+        
+    return dict(type_map)
+
 
 
 
@@ -131,7 +141,6 @@ def DocLoader(text):
 # returns unique dict() as Entity:(type, score) using highest score of entity type
 def RunPII(text, analyzer):
     analyzer_results = analyzer.analyze(text=text, language="en", entities=Entities)
-    #PII={res.start:(text[res.start:res.end],res.entity_type, res.score) for res in analyzer_results}
     PII = [(text[res.start:res.end], res.entity_type, res.score, res.start, res.end) for res in analyzer_results]
     PII_dict=dict()
     for i in PII:
@@ -143,7 +152,7 @@ def RunPII(text, analyzer):
         else:
             pass
 
-    return PII, PII_dict
+    return PII_dict
 
 
 # Copy of RUNPII - Scans through original text as Chunks
@@ -167,68 +176,59 @@ def RunPIIChunks(chunks, analyzer):
         else:
             pass
 
-    return PII, PII_dict
+    return PII_dict
 
 # This is the iterator Analyzer Engine to Flag the PII we want to mask from each document
 # This function Scans the report document and creates the initial set of <MASK> entities, accounting for skiplists and addlists
 def RunAnalyzer(text, config):
-    if config.get('name') == 'GLiNER':
-        provider = NlpEngineProvider(nlp_configuration=config.get('config'))
-        analyzer = AnalyzerEngine(nlp_engine=provider.create_engine())
-        # Add the GLiNER recognizer to the registry
-        analyzer.registry.add_recognizer(gliner_recognizer)
-        # Remove the spaCy recognizer to avoid NER coming from spaCy
+    # Setup logic (Standardized provider/engine initialization)
+    conf_name = config.get('name')
+    provider = NlpEngineProvider(nlp_configuration=config.get('config'))
+    engine = provider.create_engine()
+
+    if config.get('name') == 'GLiNER_Eng':
+        # Create the registry and add GLiNER recognizer
+        registry = RecognizerRegistry()
+        registry.load_predefined_recognizers() # Loads default regex-based ones
+        registry.add_recognizer(GlinerRecognizer(model_name=config.get('external_model'), labals=Entities))
+        analyzer = AnalyzerEngine(nlp_engine=engine, registry=registry)
+        # Drop base Recognizer since it is not required for GLiNER
         analyzer.registry.remove_recognizer("SpacyRecognizer")
 
         # Chunk texts to ensure full compatibility with GLiNER NER
         chunks = chunk_text_textwrap(text)
-
-        # Run Analyzer with given config
-        PII, pdict = RunPIIChunks(chunks, analyzer)
+        pdict = RunPIIChunks(chunks, analyzer)
 
     else:
-        provider = NlpEngineProvider(nlp_configuration=config.get('config'))
-        analyzer = AnalyzerEngine(nlp_engine=provider.create_engine())
-        # Run Analyzer with given config
-        PII, pdict = RunPII(text, analyzer)
+        analyzer = AnalyzerEngine(nlp_engine=engine)
+        pdict = RunPII(text, analyzer)
+
+    # Filters out entities that meet any of the "drop" criteria
+    return {
+        ent: val for ent, val in pdict.items() 
+        if not (cleantime(ent) >= 1 or cleangeneral(ent) >= 1 or checkskiplist(ent) >= 1)
+    }
     
-    # Clean up time bound entities - add an exclusion/drop list from the entity anonymizer (where they should not be removed)
-    # Clean up General entities - add an exclusion/drop list from the entity anonymizer (where they should not be removed)
-    timedrop, generaldrop, skipset = {}, {}, {}
-    dropset=set()
-    for k in pdict.keys():
-        # Time bound
-        timedrop[k]=cleantime(k)
-        tdrop = [key for key, value in timedrop.items() if value >= 1]
-        # General
-        generaldrop[k]=cleangeneral(k)
-        gdrop = [key for key, value in generaldrop.items() if value >= 1]
-        # skiplist
-        skipset[k]=checkskiplist(k)
-        skipdrop = [key for key, value in skipset.items() if value >= 1]
-
-    # Filter time bound and eneral entities we want to keep in the data from the masking set
-    dropset = list(set(tdrop + gdrop + skipdrop))
-    rdict = {key:value for key, value in pdict.items() if key not in dropset}
-        
-    return rdict
-
 
 
 # Analyzer with specific Deny list and Anonymize Texts
 # This function inputs the custom <MASK> entities (DenyList) and anonymizes the full text for each document
-def AnonymizeText(text, DenyList):
+def AnonymizeText(text, DenyList, entity_names=True):
 
-    # Reset Analyzer and run
-    FullScan = PatternRecognizer(supported_entity=replacement, deny_list=DenyList)
     analyzer = AnalyzerEngine()
-    analyzer.registry.add_recognizer(FullScan)
-    results = analyzer.analyze(text=text, language="en",entities=[replacement])
-
-    # clean up format for logging
-    #results=[r.to_dict() for r in results]
     
-    # Anonymizer
+    if entity_names==True:
+        # Append Entities to Analyzer and run
+        for key, values in DenyList.items():
+            recognizer = PatternRecognizer(supported_entity=key, deny_list=values)
+            analyzer.registry.add_recognizer(recognizer)
+            results = analyzer.analyze(text=text, language="en")
+    else:
+        FullScan = PatternRecognizer(supported_entity=replacement, deny_list=DenyList)
+        analyzer.registry.add_recognizer(FullScan)
+        results = analyzer.analyze(text=text, language="en",entities=[replacement])
+
+
     anonymizer = AnonymizerEngine()
     anonymized_results = anonymizer.anonymize(
             text=text,
@@ -239,17 +239,22 @@ def AnonymizeText(text, DenyList):
 
 
 # Iterate through reports and run anonymizer functions
-def RunIterator(Reports):
-
+def RunIterator(Reports, mask_arg):
+    
     PII_Iterator, Anonymized_text, PII_Log = {},{},{}
 
     for idx, text in Reports.items():
         print(f"Anonymizing {idx}")
-        idx_dict = DocLoader(text)
+        idx_dict = DocLoader(text, mask_arg)
         PII_Iterator[idx]=idx_dict
 
-        DenyList=idx_dict.get('Deny')
-        results, anon_report = AnonymizeText(text, DenyList)
+        if mask_arg == 'redact':
+            DenyList=idx_dict.get('Redact')
+            results, anon_report = AnonymizeText(text, DenyList, entity_names=False)
+        else:
+            DenyList=idx_dict.get('Deny')
+            results, anon_report = AnonymizeText(text, DenyList)
+            
         PII_Log[idx] = [result.to_dict() for result in results]
         Anonymized_text[idx] = anon_report
 

@@ -1,7 +1,9 @@
 
 from pathlib import Path
 import os
-from presidio_analyzer.predefined_recognizers import GLiNERRecognizer
+from presidio_analyzer import EntityRecognizer, RecognizerResult
+from typing import List
+from gliner import GLiNER
 
 # Directory and Filepath Locations
 base_path = Path.cwd()
@@ -32,31 +34,49 @@ stanza = {
         "models": [{"lang_code": "en", "model_name": "en"}]
         }
 }
-GLiNER = {
+GLiNER_Eng = {
     'name':'GLiNER',
     'config' : {
-        "nlp_engine_name": "stanza",
-        "models": [{"lang_code": "en", "model_name": "en"}]
-        }
+        "nlp_engine_name": "spacy",
+        "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
+        },
+    'external_model': "nvidia/gliner-PII"
 }
 
-configs = [spacy, stanza, GLiNER]
+configs = [spacy, stanza, GLiNER_Eng]
 
-gliner_recognizer = GLiNERRecognizer(
-    model_name="urchade/gliner_multi_pii-v1",
-    #entity_mapping=entity_mapping,
-    flat_ner=False,
-    #multi_label=True,
-    #map_location="cpu",
-)
+
+class GlinerRecognizer(EntityRecognizer):
+    def __init__(self, model_name: str, labels: List[str], **kwargs):
+        self.model = GLiNER.from_pretrained(model_name)
+        self.labels = labels
+        super().__init__(supported_entities=labels, **kwargs)
+
+    def load(self) -> None:
+        pass
+
+    def analyze(self, text: str, entities: List[str], nlp_artifacts=None) -> List[RecognizerResult]:
+        results = []
+        gliner_results = self.model.predict_entities(text, self.labels, threshold=0.5)
+        for res in gliner_results:
+            # Convert GLiNER output to Presidio RecognizerResult
+            results.append(
+                RecognizerResult(
+                    entity_type=res["label"],
+                    start=res["start"],
+                    end=res["end"],
+                    score=res["score"]
+                )
+            )
+        return results
+
 
 ##############################################################################################
 # Filter and Entity Configs
 ##############################################################################################
 
 Entities = ['DATE_TIME', 'LOCATION', 'ORGANIZATION', 'PHONE_NUMBER', 'US_DRIVER_LICENSE', 'NRP', 'PERSON', 'EMAIL_ADDRESS',
-            'CREDIT_CARD','CRYPTO','IBAN_CODE','IP_ADDRESS','MEDICAL_LICENSE',
-           'US_BANK_NUMBER','US_DRIVER_LICENSE','US_ITIN','US_PASSPORT','US_SSN',
+            'CREDIT_CARD','CRYPTO','IBAN_CODE','IP_ADDRESS','MEDICAL_LICENSE','US_BANK_NUMBER','US_ITIN','US_PASSPORT','US_SSN',
            ]
 
 
