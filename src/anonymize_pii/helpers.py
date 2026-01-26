@@ -11,6 +11,7 @@ import textwrap
 from collections import defaultdict
 
 from presidio_analyzer.nlp_engine import NlpEngineProvider, NlpEngine, SpacyNlpEngine, NerModelConfiguration
+from presidio_analyzer.recognizer_registry import RecognizerRegistry
 from presidio_analyzer import AnalyzerEngine, PatternRecognizer, Pattern
 from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
@@ -189,11 +190,11 @@ def RunAnalyzer(text, config):
     if config.get('name') == 'GLiNER_Eng':
         # Create the registry and add GLiNER recognizer
         registry = RecognizerRegistry()
-        registry.load_predefined_recognizers() # Loads default regex-based ones
-        registry.add_recognizer(GlinerRecognizer(model_name=config.get('external_model'), labals=Entities))
+       #registry.load_predefined_recognizers() # Loads default regex-based ones
+        registry.add_recognizer(GlinerRecognizer(model_name=config.get('external_model'), labels=Entities))
         analyzer = AnalyzerEngine(nlp_engine=engine, registry=registry)
         # Drop base Recognizer since it is not required for GLiNER
-        analyzer.registry.remove_recognizer("SpacyRecognizer")
+        #analyzer.registry.remove_recognizer("SpacyRecognizer")
 
         # Chunk texts to ensure full compatibility with GLiNER NER
         chunks = chunk_text_textwrap(text)
@@ -215,16 +216,18 @@ def RunAnalyzer(text, config):
 # This function inputs the custom <MASK> entities (DenyList) and anonymizes the full text for each document
 def AnonymizeText(text, DenyList, entity_names=True):
 
-    analyzer = AnalyzerEngine()
-    
+    registry = RecognizerRegistry()
+
     if entity_names==True:
         # Append Entities to Analyzer and run
         for key, values in DenyList.items():
             recognizer = PatternRecognizer(supported_entity=key, deny_list=values)
-            analyzer.registry.add_recognizer(recognizer)
+            registry.add_recognizer(recognizer)
+            analyzer = AnalyzerEngine(registry=registry)
             results = analyzer.analyze(text=text, language="en")
     else:
         FullScan = PatternRecognizer(supported_entity=replacement, deny_list=DenyList)
+        analyzer = AnalyzerEngine()
         analyzer.registry.add_recognizer(FullScan)
         results = analyzer.analyze(text=text, language="en",entities=[replacement])
 
