@@ -25,6 +25,10 @@ You can copy the "Reports.json" file from the /tests/ directory into /data/raw/ 
 
 from /src/anonymize_pii directory, run main.py
 
+Defaults:
+
+--mask 'entity' (this replaces all entities with the highest confidence entity type).  To override with the generic <redact> label, run with argument --mask redact
+
 
 ## References
 
