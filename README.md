@@ -2,7 +2,7 @@
 
 # Anonymize-PII
 
-This repository ingests reports containing PII and applies an iterative anonymization procedure to flag and anonymize reports.  Current version replaces all flagged PII with `<MASK>` field to ensure consistency.
+This repository ingests reports containing PII and applies an iterative anonymization procedure to flag and anonymize reports.
 
 
 ## Features
@@ -27,7 +27,7 @@ from /src/anonymize_pii directory, run main.py
 
 Defaults:
 
---mask 'entity' (this replaces all entities with the highest confidence entity type).  To override with the generic <redact> label, run with argument --mask redact
+--mask 'entity' (this replaces all entities with the highest confidence entity type).  To override PII replacement with the generic '<redact>' label, run main.py with argument: --mask redact
 
 
 ## References
