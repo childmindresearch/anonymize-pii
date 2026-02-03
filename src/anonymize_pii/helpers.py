@@ -50,7 +50,7 @@ def SaveOutputs(data, filename):
     try:
         with open(filename, 'w') as json_file:
             json.dump(data, json_file, indent=4)
-        print(f"Dictionary successfully saved to {filename}")
+        #print(f"Dictionary successfully saved to {filename}")
     except TypeError as e:
         print(f"Error: Unable to serialize data. {e}")
     except IOError as e:
@@ -242,34 +242,70 @@ def AnonymizeText(text, DenyList, entity_names=True):
 
 
 # Iterate through reports and run anonymizer functions
-def RunIterator(Reports, mask_arg):
-    
-    PII_Iterator, Anonymized_text, PII_Log = {},{},{}
+def RunIterator(Reports, mask_arg, output_arg):
 
-    for idx, text in Reports.items():
+
+    if output_arg == 'single':
+        OutputIndReport(Reports, mask_arg)
+        print("Anonymizer Complete")
+    
+    else:
+
+        PII_Iterator, Anonymized_text, PII_Log = {},{},{}
+        for idx, text in Reports.items():
+            print(f"Anonymizing {idx}")
+            idx_dict = DocLoader(text, mask_arg)
+            PII_Iterator[idx]=idx_dict
+
+            if mask_arg == 'redact':
+                DenyList=idx_dict.get('Redact')
+                results, anon_report = AnonymizeText(text, DenyList, entity_names=False)
+            else:
+                DenyList=idx_dict.get('Deny')
+                results, anon_report = AnonymizeText(text, DenyList)
+                
+            PII_Log[idx] = [result.to_dict() for result in results]
+            Anonymized_text[idx] = anon_report
+
+        # Save anonymized results to output directory
+        SaveOutputs(PII_Iterator, f'{anonymize_location}/Iterator.json')
+        SaveOutputs(Anonymized_text, f'{anonymize_location}/Anonymized_Reports.json')
+        SaveOutputs(PII_Log, f'{anonymize_location}/PII_Log.json')
+
+        print("Anonymizer Complete")
+
+
+
+
+def OutputIndReport(Reports, mask_arg):
+
+    for idx, rawtext in Reports.items():
+        PII_Iterator, Anonymized_text, PII_Log = {},{},{}
+        
         print(f"Anonymizing {idx}")
-        idx_dict = DocLoader(text, mask_arg)
+        idx_dict = DocLoader(rawtext, mask_arg)
         PII_Iterator[idx]=idx_dict
 
         if mask_arg == 'redact':
             DenyList=idx_dict.get('Redact')
-            results, anon_report = AnonymizeText(text, DenyList, entity_names=False)
+            results, anon_report = AnonymizeText(rawtext, DenyList, entity_names=False)
         else:
             DenyList=idx_dict.get('Deny')
-            results, anon_report = AnonymizeText(text, DenyList)
+            results, anon_report = AnonymizeText(rawtext, DenyList)
             
         PII_Log[idx] = [result.to_dict() for result in results]
         Anonymized_text[idx] = anon_report
 
-    # Save anonymized results to output directory
-    SaveOutputs(PII_Iterator, f'{anonymize_location}/Iterator.json')
-    SaveOutputs(Anonymized_text, f'{anonymize_location}/Anonymized_Reports.json')
-    SaveOutputs(PII_Log, f'{anonymize_location}/PII_Log.json')
+         # Save anonymized results to output directory
+        report_path = os.path.join(anonymize_location,str(idx))
+        CreateOutputDir(report_path)
+        SaveOutputs(PII_Iterator, f'{report_path}/Iterator.json')
+        SaveOutputs(Anonymized_text, f'{report_path}/Anonymized_Report.json')
+        SaveOutputs(PII_Log, f'{report_path}/PII_Log.json')
 
-
-
-
-
+        source_text = {}
+        source_text[idx] = rawtext
+        SaveOutputs(source_text, f'{report_path}/Original_Report.json')
 
 
 

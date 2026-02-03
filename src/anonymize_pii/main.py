@@ -7,10 +7,11 @@ import argparse
 def main(**kwargs):
 
     mask_arg = kwargs.get('mask')
+    output_arg = kwargs.get('output')
 
     CreateOutputDir(anonymize_location)
     Reports = LoadReports(report_location)
-    RunIterator(Reports, mask_arg)
+    RunIterator(Reports, mask_arg, output_arg)
 
 
 
@@ -18,6 +19,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--mask", type = str, default = "entity")
+    parser.add_argument("--output", type = str, default = "merged")
     args = parser.parse_args()
 
     main(**vars(args))
