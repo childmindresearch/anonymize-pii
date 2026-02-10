@@ -40,7 +40,7 @@ GLiNER_Eng = {
         "nlp_engine_name": "spacy",
         "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
         },
-    'external_model': "nvidia/gliner-PII"
+    'external_model': "nvidia/gliner-pii"
 }
 
 configs = [spacy, stanza, GLiNER_Eng]

@@ -79,7 +79,7 @@ def checkskiplist(text):
     return int(text.lower() in skiplist)
 
 
-def chunk_text_textwrap(text, max_length=2000):
+def chunk_text_textwrap(text, max_length=384):
   """
   Splits text into chunks of a maximum character length without breaking words.
   """
@@ -183,11 +183,11 @@ def RunPIIChunks(chunks, analyzer):
 # This function Scans the report document and creates the initial set of <MASK> entities, accounting for skiplists and addlists
 def RunAnalyzer(text, config):
     # Setup logic (Standardized provider/engine initialization)
-    conf_name = config.get('name')
+    #conf_name = config.get('name')
     provider = NlpEngineProvider(nlp_configuration=config.get('config'))
     engine = provider.create_engine()
 
-    if config.get('name') == 'GLiNER_Eng':
+    if config.get('name') == 'GLiNER':
         # Create the registry and add GLiNER recognizer
         registry = RecognizerRegistry()
        #registry.load_predefined_recognizers() # Loads default regex-based ones
