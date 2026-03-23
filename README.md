@@ -27,7 +27,7 @@ from `/src/anonymize_pii` directory, run `main.py`
 
 Defaults:
 
-`--mask entity` (this replaces all entities with the highest confidence entity type).  To override PII replacement with the generic `<REDACTED>` label, run `main.py` with argument: `--mask redact`
+`--mask entity` (this replaces all entities with the highest confidence entity type).  To override PII replacement with the generic `<REDACTED>` label, run `main.py` with argument: `--mask redact`. To add counters to the entity types, run `main.py` with argument: `--mask counter`
 
 
 ## Document Parsing with Headhunter

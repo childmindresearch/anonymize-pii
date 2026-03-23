@@ -32,7 +32,7 @@ def main(**kwargs):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mask", type = str, default = "entity")
+    parser.add_argument("--mask", type = str, default = "entity", choices=["entity", "redact", "counter"])
     parser.add_argument("--output", type = str, default = "merged")
     parser.add_argument("--parse", action="store_true", help="Parse input with headhunter before anonymization.")
     args = parser.parse_args()
