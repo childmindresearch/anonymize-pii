@@ -13,13 +13,59 @@ from collections import defaultdict
 
 from presidio_analyzer.recognizer_registry import RecognizerRegistry
 from presidio_analyzer import AnalyzerEngine, PatternRecognizer, Pattern
-from presidio_anonymizer import AnonymizerEngine
+from presidio_anonymizer import AnonymizerEngine, OperatorConfig
+from presidio_anonymizer.operators import Operator, OperatorType
 
 import logging
 # Set the logging level for the 'stanza' logger to WARNING or ERROR
 logging.getLogger('stanza').setLevel(logging.ERROR)
 
 
+class InstanceCounterAnonymizer(Operator):
+    """Replace the entity values with an instance counter per entity type."""
+
+    REPLACING_FORMAT = "<{entity_type}_{index}>"
+
+    def operate(self, text: str, params: dict | None = None) -> str:
+        if params is None:
+            raise ValueError("params is required.")
+
+        entity_type: str = params["entity_type"]
+        entity_mapping: dict[str, dict[str, str]] = params["entity_mapping"]
+
+        entity_mapping_for_type: dict[str, str] = entity_mapping.get(entity_type)
+        if not entity_mapping_for_type:
+            new_text: str = self.REPLACING_FORMAT.format(entity_type=entity_type, index=1)
+            entity_mapping[entity_type] = {}
+        else:
+            if text in entity_mapping_for_type:
+                return entity_mapping_for_type[text]
+
+            previous_index: int = self._get_last_index(entity_mapping_for_type)
+            new_text: str = self.REPLACING_FORMAT.format(
+                entity_type=entity_type, index=previous_index + 1
+            )
+
+        entity_mapping[entity_type][text] = new_text
+        return new_text
+
+    @staticmethod
+    def _get_last_index(entity_mapping_for_type: dict[str, str]) -> int:
+        return len(entity_mapping_for_type)
+
+    def validate(self, params: dict | None = None) -> None:
+        if params is None:
+            raise ValueError("params is required.")
+        if "entity_mapping" not in params:
+            raise ValueError("An input dict called `entity_mapping` is required.")
+        if "entity_type" not in params:
+            raise ValueError("An entity_type param is required.")
+
+    def operator_name(self) -> str:
+        return "entity_counter"
+
+    def operator_type(self) -> OperatorType:
+        return OperatorType.Anonymize
 
 
 def process_full_document(text, configs, warm_engines, pii_filter, mask_arg):
@@ -102,11 +148,11 @@ class EntityScanner:
 
 
 
-def AnonymizeText(text, DenyList, entity_names=True):
+def AnonymizeText(text, DenyList, mask_arg='entity'):
 
     registry = RecognizerRegistry()
 
-    if entity_names==True:
+    if mask_arg in {'entity', 'counter'}:
         # Append Entities to Analyzer and run
         for key, values in DenyList.items():
             if values:
@@ -122,12 +168,26 @@ def AnonymizeText(text, DenyList, entity_names=True):
 
 
     anonymizer = AnonymizerEngine()
-    anonymized_results = anonymizer.anonymize(
+    entity_mapping = {}
+
+    if mask_arg == 'counter':
+        anonymizer.add_anonymizer(InstanceCounterAnonymizer)
+        anonymized_results = anonymizer.anonymize(
             text=text,
+            analyzer_results=results,
+            operators={
+                "DEFAULT": OperatorConfig(
+                    "entity_counter", params={"entity_mapping": entity_mapping}
+                )
+            },
+        )
+    else:
+        anonymized_results = anonymizer.anonymize(
+            text=text, 
             analyzer_results=results,
         )
     
-    return results, anonymized_results.text
+    return results, anonymized_results.text, entity_mapping
 
 
 def RunIterator(Reports, device, mask_arg, output_arg, warm_engines, skiplist):
@@ -146,7 +206,10 @@ def RunIterator(Reports, device, mask_arg, output_arg, warm_engines, skiplist):
         # Anonymize based on mask_arg
         is_redact = (mask_arg == 'redact')
         deny_list = doc_data['Redact'] if is_redact else doc_data['Deny']
-        results, anon_report = AnonymizeText(text, deny_list, entity_names=not is_redact)
+        results, anon_report, entity_mapping = AnonymizeText(text, deny_list, mask_arg=mask_arg)
+
+        if mask_arg == 'counter':
+            doc_data['EntityMapping'] = entity_mapping
             
         # Handle Output Logic
         pii_results_serialized = [result.to_dict() for result in results]

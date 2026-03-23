@@ -26,7 +26,7 @@ def main(**kwargs):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mask", type = str, default = "entity")
+    parser.add_argument("--mask", type = str, default = "entity", choices=["entity", "redact", "counter"])
     parser.add_argument("--output", type = str, default = "merged")
     args = parser.parse_args()
 
