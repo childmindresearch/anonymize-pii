@@ -154,3 +154,38 @@ headhunter_config = {
     'separate_headings_into_reports': False,
 }
 
+
+##############################################################################################
+# Relation-aware Tagging Configs
+##############################################################################################
+
+person_relation_config = {
+    'enabled_for_mask': 'counter',
+    'batch_prompt_template': (
+        'Task: classify each listed person mention in a clinical note.\n'
+        'Output: one JSON object only, no markdown, no prose, no code fences.\n'
+        'Schema: {"assignments":[{"person_tag":"<PERSON_2>","relation_label":"mother","related_to_patient":true,"confidence":0.92,"rationale_short":"listed in parent contact"}]}\n'
+        'Rules:\n'
+        '1) Return exactly one assignment for every provided person_tag.\n'
+        '2) Every assignment must include only these keys: person_tag, relation_label, related_to_patient, confidence, rationale_short.\n'
+        '3) person_tag must exactly match one tag from the provided targets.\n'
+        '4) relation_label must be short lowercase text. Use relation_label=patient when the person is the patient.\n'
+        '5) Use related_to_patient=true for meaningful patient-context connections (family, caregivers, household, teachers, classmates, peers, clinicians, counselors, coaches, mentors, supervisors, recurring social contacts).\n'
+        '6) Use related_to_patient=false and relation_label=unrelated only for clearly external references with no direct patient relationship (e.g., book authors, public figures, celebrities).\n'
+        '7) If ambiguous between related and unrelated, prefer related_to_patient=true with your best relation_label.\n'
+        '8) confidence must be a float in [0,1].\n'
+        '9) rationale_short must be <= 10 words.\n'
+        'Targets JSON: [[TARGETS_JSON]]'
+    ),
+    'ollama': {
+        'url': 'http://localhost:11434/api/generate',
+        'model': 'qwen3.5:27b',
+        'timeout_seconds': 30,
+        'temperature': 0.0,
+    },
+    'context_window_chars': 220,
+    'confidence_threshold': 0.5,
+    'max_persons_per_report': 50,
+    'batch_size': 5,
+}
+

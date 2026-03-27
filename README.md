@@ -25,9 +25,12 @@ You can copy the `Reports.json` file from the `/tests/` directory into `/data/ra
 
 from `/src/anonymize_pii` directory, run `main.py`
 
-Defaults:
+Masking options:
 
-`--mask entity` (this replaces all entities with the highest confidence entity type).  To override PII replacement with the generic `<REDACTED>` label, run `main.py` with argument: `--mask redact`. To add counters to the entity types, run `main.py` with argument: `--mask counter`
+- `--mask entity`: replaces all entities with the highest confidence entity type (default)
+- `--mask redact`: overrides PII replacement with the generic `<REDACTED>` label
+- `--mask counter`: adds counters to the detected entity type (e.g. `<PERSON_1>`, `<ORGANIZATION_7>`, etc.) to distinguish unique entities
+    - `EXPERIMENTAL`: use `--person-relations` together with `--mask counter` to replace PERSON counters with patient-relative tags inferred by local Ollama context (e.g. `<PATIENT_MOTHER>`, `<PATIENT_COUNSELOR>`, etc.). If relation extraction is uncertain or fails, the original PERSON counter tag is preserved. Requires local Ollama installation. See `config.py` for more details.
 
 
 ## Document Parsing with Headhunter

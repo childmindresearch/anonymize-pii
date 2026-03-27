@@ -1,6 +1,7 @@
 
 from config import configs, GlinerRecognizer, Entities, timewords, generalwords, anonymize_location, replacement
 from helpers import PIIFilter, CreateOutputDir, SaveOutputs
+from person_relations import extract_and_apply_person_relations
 
 import os
 import json
@@ -251,7 +252,16 @@ def AnonymizeText(text, DenyList, mask_arg='entity'):
     return results, anonymized_results.text, entity_mapping
 
 
-def RunIterator(Reports, device, mask_arg, output_arg, warm_engines, skiplist):
+def RunIterator(
+    Reports,
+    device,
+    mask_arg,
+    output_arg,
+    warm_engines,
+    skiplist,
+    person_relations,
+    relation_config,
+):
     # Initialize tools once (Performance boost: sets are built only once)
     pii_filter = PIIFilter(skiplist, timewords, generalwords)
     
@@ -271,6 +281,15 @@ def RunIterator(Reports, device, mask_arg, output_arg, warm_engines, skiplist):
 
         if mask_arg == 'counter':
             doc_data['EntityMapping'] = _sorted_entity_mapping_for_output(entity_mapping)
+            if person_relations:
+                rel_cfg = relation_config or {}
+                anon_report, relation_rows = extract_and_apply_person_relations(
+                    original_text=text,
+                    anonymized_text=anon_report,
+                    entity_mapping=entity_mapping,
+                    relation_config=rel_cfg,
+                )
+                doc_data['PersonRelationMapping'] = relation_rows
             
         # Handle Output Logic
         pii_results_serialized = [result.to_dict() for result in results]
