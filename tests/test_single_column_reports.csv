@@ -1,0 +1,43 @@
+report_id,report,category
+synth_batch_001,"# Behavioral Assessment Report
+
+**Patient:** Omar Hassan
+**DOB:** September 3, 2015
+**Address:** 2100 Lakeshore Drive, Chicago, IL 60614
+**Observer:** Dr. Patricia Moore, PhD
+**Parent Contact:** Fatima Hassan (312-555-0456)
+**Observation Period:** March 17-21, 2025
+**School:** Lakeview Elementary, Ms. Thompson's 4th grade class
+
+## CLINICAL SUMMARY
+
+Omar Hassan, a 9-year-old male student at Lakeview Elementary, demonstrates strong academic performance with particular strengths in science and mathematics. Omar resides at 2100 Lakeshore Drive with his mother Fatima Hassan, pharmacist at Walgreens (1800 North Clark Street), maternal grandmother Amira Hassan age 67, and younger sister Layla Hassan age 5. Omar's father Khalid Hassan maintains biweekly visitation from his residence at 3500 Michigan Avenue, Chicago, IL 60616 (312-555-0789). Academic observations reveal Omar scoring at 90th percentile on district math benchmark, with active participation in school science club led by teacher Mr. David Chen. Social interactions include close friendships with classmates Ethan Park and Lucas Rivera.
+
+## TREATMENT PLAN
+
+Biweekly sessions with licensed clinical social worker Ms. Karen Wright (kwright@lakeview-schools.org, 312-555-0234) focusing on anxiety management. Referral to Dr. Susan Lee, child psychiatrist at Chicago Children's Hospital (225 East Chicago Avenue, 312-555-0567, NPI: 5678901234) for medication evaluation.
+
+## Note
+
+Report prepared by Dr. Patricia Moore, License #PSY-34567, Chicago Psychological Services, Phone: (312) 555-0890, Email: pmoore@chi-psych.org",behavioral
+synth_batch_002,"# Academic Progress Report
+
+**Patient:** Isabella Santos
+**DOB:** December 11, 2016
+**Address:** 890 Palm Avenue, Miami, FL 33139
+**Observer:** Dr. Carlos Rivera, PsyD
+**Parent Contact:** Sofia Santos (305-555-0123), Miguel Santos (305-555-0124)
+**Observation Period:** May 5-9, 2025
+**School:** Sunset Elementary, Mrs. Garcia's 3rd grade class
+
+## CLINICAL SUMMARY
+
+Isabella Santos, an 8-year-old female student at Sunset Elementary, demonstrates bilingual proficiency and above-average academic performance. Isabella resides at 890 Palm Avenue with parents Sofia Santos, dental hygienist at Coral Gables Dental (2400 Ponce de Leon Boulevard, 305-555-0345), and Miguel Santos, restaurant manager. Isabella has twin older brothers Marco and Diego Santos age 11, 6th grade at Coral Way Middle School. Maternal grandparents Teresa and Juan Morales (ages 72 and 74, 305-555-0678) provide after-school care at their home (1200 SW 8th Street). Academic observations show Isabella performing above grade level in both English and Spanish literacy, with strong skills in reading comprehension and creative writing. Mathematics performance at grade level with solid understanding of multiplication and division concepts. Social observations reveal Isabella as socially confident with wide friendship network.
+
+## TREATMENT PLAN
+
+Monthly consultation with bilingual school psychologist Dr. Ana Reyes (areyes@sunset-schools.org, 305-555-0456) regarding academic enrichment. Saturday morning dance lessons at Miami Dance Academy (567 Collins Avenue, instructor: Ms. Elena Vasquez, 305-555-0789). Family therapy sessions with Dr. Maria Gonzalez at Family Wellness Center (3400 Biscayne Boulevard, 305-555-0234).
+
+## Note
+
+Report prepared by Dr. Carlos Rivera, License #PSY-78901, Miami Developmental Center, 1500 Brickell Avenue, Miami, FL 33131, Phone: (305) 555-0567, NPI: 3456789012",academic
