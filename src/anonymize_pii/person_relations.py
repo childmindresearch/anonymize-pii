@@ -236,7 +236,7 @@ def extract_and_apply_person_relations(
             "person_index": person_idx,
             "source_text": person_text,
             "original_tag": person_tag,
-            "replacement_tag": person_tag.strip("<>"),
+            "replacement_tag": person_tag,
             "relation_label_raw": None,
             "rationale_short": None,
             "confidence": 0.0,
@@ -288,7 +288,7 @@ def extract_and_apply_person_relations(
                     if related is False:
                         row["status"] = "unrelated_kept"
                     elif normalized and confidence >= confidence_threshold:
-                        row["replacement_tag"] = normalized
+                        row["replacement_tag"] = f"<{normalized}>"
                         row["generated_by_model"] = True
                         row["status"] = "resolved"
                     else:

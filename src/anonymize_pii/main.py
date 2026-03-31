@@ -7,9 +7,11 @@ from config import (
     configs,
     skiplist_dir,
     person_relation_config,
+    headhunter_config,
 )
 from helpers import CreateOutputDir, LoadReports, load_skiplist_from_directory
 from anonymizers import RunIterator
+from parsing import parse_reports
 import argparse
 
 
@@ -20,11 +22,16 @@ def main(**kwargs):
     mask_arg = kwargs.get('mask')
     output_arg = kwargs.get('output')
     person_relations = kwargs.get('person_relations')
-    
+    parse_first = kwargs.get('parse')
+
     skiplist = load_skiplist_from_directory(skiplist_dir)
 
     CreateOutputDir(anonymize_location)
-    Reports = LoadReports(report_location)
+
+    if parse_first:
+        Reports = parse_reports(headhunter_config)
+    else:
+        Reports = LoadReports(report_location)
 
     warm_engines = get_warm_engines(configs, device)
     RunIterator(
@@ -45,7 +52,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--mask", type = str, default = "entity", choices=["entity", "redact", "counter"])
     parser.add_argument("--output", type = str, default = "merged")
-    parser.add_argument("--person-relations", action="store_true")
+    parser.add_argument("--person-relations", action="store_true", help="Replace person tags with their relation to the patient.")
+    parser.add_argument("--parse", action="store_true", help="Parse input with headhunter before anonymization.")
     args = parser.parse_args()
 
     main(**vars(args))
