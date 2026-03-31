@@ -30,6 +30,21 @@ Defaults:
 --mask 'entity' (this replaces all entities with the highest confidence entity type).  To override PII replacement with the generic '<redact>' label, run main.py with argument: --mask redact
 
 
+## Document Parsing with Headhunter
+
+The pipeline includes an optional pre-processing step using [headhunter](https://github.com/childmindresearch/headhunter) that parses and normalizes documents before anonymization. This is useful when you need to:
+
+- Extract and standardize headings from inconsistently formatted markdown reports
+- Anonymize only specific sections (e.g. just the "Clinical Summary") rather than the full document
+- Ingest structured tabular data (CSV/Parquet) and convert it into the report format the anonymiser expects
+
+### Usage
+
+Add `--parse` when running the pipeline. This will parse the input according to `headhunter_config` in `config.py`, export the result to `data/parsed/Parsed_Reports.json`, and then feed it into the anonymization pipeline.
+
+Three config templates are provided in `config.py`, pick the one that matches your input format and assign it to `headhunter_config`. See comments in `config.py` for the full set of options per template.
+
+
 ## References
 
 https://microsoft.github.io/presidio/
