@@ -14,11 +14,15 @@ from collections import defaultdict
 from presidio_analyzer.recognizer_registry import RecognizerRegistry
 from presidio_analyzer import AnalyzerEngine, PatternRecognizer, Pattern
 from presidio_anonymizer import AnonymizerEngine, OperatorConfig
+from presidio_anonymizer.entities import ConflictResolutionStrategy
 from presidio_anonymizer.operators import Operator, OperatorType
 
 import logging
+
 # Set the logging level for the 'stanza' logger to WARNING or ERROR
 logging.getLogger('stanza').setLevel(logging.ERROR)
+
+PLACEHOLDER_INDEX_PATTERN = re.compile(r"^<[^>]+_(\d+)>$")
 
 
 class InstanceCounterAnonymizer(Operator):
@@ -32,21 +36,28 @@ class InstanceCounterAnonymizer(Operator):
 
         entity_type: str = params["entity_type"]
         entity_mapping: dict[str, dict[str, str]] = params["entity_mapping"]
+        entity_type_totals: dict[str, int] = params["entity_type_totals"]
 
-        entity_mapping_for_type: dict[str, str] = entity_mapping.get(entity_type)
-        if not entity_mapping_for_type:
-            new_text: str = self.REPLACING_FORMAT.format(entity_type=entity_type, index=1)
-            entity_mapping[entity_type] = {}
+        total_for_type: int = entity_type_totals.get(entity_type, 0)
+        entity_mapping_for_type: dict[str, str] = entity_mapping.setdefault(entity_type, {})
+
+        if text in entity_mapping_for_type:
+            return entity_mapping_for_type[text]
+
+        previous_index: int = self._get_last_index(entity_mapping_for_type)
+        reverse_index: int = total_for_type - previous_index
+
+        # Presidio applies operations from right to left. Use precomputed totals to
+        # assign descending IDs so placeholders appear left-to-right as 1..N.
+        if reverse_index > 0:
+            new_index = reverse_index
         else:
-            if text in entity_mapping_for_type:
-                return entity_mapping_for_type[text]
+            # Fallback if totals are unavailable or exhausted.
+            new_index = previous_index + 1
 
-            previous_index: int = self._get_last_index(entity_mapping_for_type)
-            new_text: str = self.REPLACING_FORMAT.format(
-                entity_type=entity_type, index=previous_index + 1
-            )
+        new_text: str = self.REPLACING_FORMAT.format(entity_type=entity_type, index=new_index)
 
-        entity_mapping[entity_type][text] = new_text
+        entity_mapping_for_type[text] = new_text
         return new_text
 
     @staticmethod
@@ -58,6 +69,8 @@ class InstanceCounterAnonymizer(Operator):
             raise ValueError("params is required.")
         if "entity_mapping" not in params:
             raise ValueError("An input dict called `entity_mapping` is required.")
+        if "entity_type_totals" not in params:
+            raise ValueError("An input dict called `entity_type_totals` is required.")
         if "entity_type" not in params:
             raise ValueError("An entity_type param is required.")
 
@@ -147,6 +160,49 @@ class EntityScanner:
             pii_dict[entity_text] = (res.entity_type, res.score)
 
 
+def _count_unique_entities_by_type(text, analyzer_results, anonymizer):
+    """Count unique replacement texts per entity type after conflict resolution."""
+    copied_results = anonymizer._copy_recognizer_results(analyzer_results)
+    copied_results.sort(key=lambda x: (x.start, x.end))
+
+    resolved_results = anonymizer._remove_conflicts_and_get_text_manipulation_data(
+        copied_results,
+        ConflictResolutionStrategy.MERGE_SIMILAR_OR_CONTAINED,
+    )
+    merged_results = anonymizer._merge_entities_with_whitespace_between(
+        text,
+        resolved_results,
+    )
+
+    unique_texts_by_type = defaultdict(set)
+    for result in merged_results:
+        unique_texts_by_type[result.entity_type].add(text[result.start:result.end])
+
+    return {
+        entity_type: len(unique_texts)
+        for entity_type, unique_texts in unique_texts_by_type.items()
+    }
+
+
+def _placeholder_sort_key(item):
+    source_text, placeholder = item
+    match = PLACEHOLDER_INDEX_PATTERN.match(placeholder)
+    if match:
+        return (0, int(match.group(1)), source_text.lower())
+    return (1, str(placeholder), source_text.lower())
+
+
+def _sorted_entity_mapping_for_output(entity_mapping):
+    sorted_entity_mapping = {}
+    for entity_type in sorted(entity_mapping.keys()):
+        mapping_for_type = entity_mapping[entity_type]
+        sorted_items = sorted(mapping_for_type.items(), key=_placeholder_sort_key)
+        sorted_entity_mapping[entity_type] = {
+            source_text: placeholder for source_text, placeholder in sorted_items
+        }
+    return sorted_entity_mapping
+
+
 
 def AnonymizeText(text, DenyList, mask_arg='entity'):
 
@@ -171,13 +227,18 @@ def AnonymizeText(text, DenyList, mask_arg='entity'):
     entity_mapping = {}
 
     if mask_arg == 'counter':
+        entity_type_totals = _count_unique_entities_by_type(text, results, anonymizer)
         anonymizer.add_anonymizer(InstanceCounterAnonymizer)
         anonymized_results = anonymizer.anonymize(
             text=text,
             analyzer_results=results,
             operators={
                 "DEFAULT": OperatorConfig(
-                    "entity_counter", params={"entity_mapping": entity_mapping}
+                    "entity_counter",
+                    params={
+                        "entity_mapping": entity_mapping,
+                        "entity_type_totals": entity_type_totals,
+                    },
                 )
             },
         )
@@ -209,7 +270,7 @@ def RunIterator(Reports, device, mask_arg, output_arg, warm_engines, skiplist):
         results, anon_report, entity_mapping = AnonymizeText(text, deny_list, mask_arg=mask_arg)
 
         if mask_arg == 'counter':
-            doc_data['EntityMapping'] = entity_mapping
+            doc_data['EntityMapping'] = _sorted_entity_mapping_for_output(entity_mapping)
             
         # Handle Output Logic
         pii_results_serialized = [result.to_dict() for result in results]
