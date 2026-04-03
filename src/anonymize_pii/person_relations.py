@@ -239,7 +239,7 @@ def extract_and_apply_person_relations(
             "person_index": person_idx,
             "source_text": person_text,
             "original_tag": person_tag,
-            "replacement_tag": person_tag.strip("<>"),
+            "replacement_tag": person_tag,
             "relation_label_raw": None,
             "rationale_short": None,
             "confidence": 0.0,
@@ -289,6 +289,7 @@ def extract_and_apply_person_relations(
                     row["confidence"] = confidence
 
                     if related is False:
+                        row["replacement_tag"] = row["original_tag"]
                         row["status"] = "unrelated_kept"
                     elif normalized and confidence >= confidence_threshold:
                         row["replacement_tag"] = normalized
