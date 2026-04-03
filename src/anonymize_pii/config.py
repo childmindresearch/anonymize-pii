@@ -1,20 +1,23 @@
-import torch
-from pathlib import Path
+
 import os
-from presidio_analyzer import EntityRecognizer, RecognizerResult,AnalyzerEngine
+from pathlib import Path
+
+import torch
+
+from presidio_analyzer import EntityRecognizer, RecognizerResult, AnalyzerEngine
 from presidio_analyzer.nlp_engine import NlpEngineProvider, NlpEngine, SpacyNlpEngine, NerModelConfiguration
 from presidio_analyzer.recognizer_registry import RecognizerRegistry
 
-from typing import List
 from gliner import GLiNER as glmodel
 
 # Directory and Filepath Locations
 base_path = Path.cwd()
-root_dir=two_up = base_path.parents[1]
+root_dir = base_path.parents[1]
 report_in = root_dir / 'data' / 'raw'
 skiplist_dir = root_dir / 'data' / 'external'
-report_location = f'{report_in}/Reports.json'
+report_location = report_in / 'Reports.json'
 anonymize_location = root_dir / 'data' / 'exports'
+parsed_report_location = root_dir / 'data' / 'parsed'
 
 
 ##############################################################################################
@@ -48,7 +51,7 @@ configs = [spacy, stanza, GLiNER]
 
 
 class GlinerRecognizer(EntityRecognizer):
-    def __init__(self, model_name: str, labels: List[str], device: str, **kwargs):
+    def __init__(self, model_name: str, labels: list[str], device: str, **kwargs):
         self.model = glmodel.from_pretrained(model_name).to(device)
         self.labels = labels
         super().__init__(supported_entities=labels, **kwargs)
@@ -56,7 +59,7 @@ class GlinerRecognizer(EntityRecognizer):
     def load(self) -> None:
         pass
 
-    def analyze(self, text: str, entities: List[str], nlp_artifacts=None) -> List[RecognizerResult]:
+    def analyze(self, text: str, entities: list[str], nlp_artifacts=None) -> list[RecognizerResult]:
         results = []
         gliner_results = self.model.predict_entities(text, self.labels, threshold=0.5, max_len=512)
         for res in gliner_results:
@@ -107,7 +110,6 @@ def get_warm_engines(configs, device):
     return warm_engines
 
 
-
 ##############################################################################################
 # Filter and Entity Configs
 ##############################################################################################
@@ -123,5 +125,32 @@ timewords = ['second','seconds','minute','minutes','hour','hours','hourly','day'
 generalwords = ['DSM-5','DSM-4','K-SADS','ICD-11','zoom','YouTube','Microsoft']
 
 
-replacement = 'Redact'
+replacement = 'REDACTED'
+
+
+##############################################################################################
+# Headhunter Parsing Configs
+##############################################################################################
+
+# This config supports three modes of operation for headhunter based on the input file type and content_columns configuration:
+# - .json input_path -> JSON mode
+# - .csv/.parquet/.pq + one content_columns entry -> single-column mode
+# - .csv/.parquet/.pq + multiple content_columns entries -> multi-column mode
+#
+# Notes:
+# - content_columns is required for CSV/Parquet inputs and ignored for JSON.
+# - headings_to_anonymize missing/empty means anonymize the full document.
+# - parser_config, expected_headings, and match_threshold are used for JSON and
+#   single-column mode only; they are ignored in multi-column mode.
+
+headhunter_config = {
+    'input_path': str(report_in / 'test_single_column_reports.csv'),
+    'content_columns': ['report'],
+    'id_column': 'report_id',
+    'parser_config': {'heading_max_words': 10},
+    'expected_headings': None,
+    'match_threshold': 80,
+    'headings_to_anonymize': ['clinical summary', 'treatment plan'],
+    'separate_headings_into_reports': False,
+}
 
