@@ -183,11 +183,12 @@ def _apply_numbered_generated_tags(rows: list[dict[str, Any]]) -> None:
     for row in rows:
         if not row.get("generated_by_model"):
             continue
-        base = row.get("replacement_tag")
-        if not base:
+        replacement_tag = row.get("replacement_tag")
+        if not replacement_tag:
             continue
+        base = replacement_tag.strip("<>")
         seen[base] += 1
-        row["replacement_tag"] = f"{base}_{seen[base]}"
+        row["replacement_tag"] = f"<{base}_{seen[base]}>"
 
 
 def _apply_replacements_in_text(anonymized_text: str, rows: list[dict[str, Any]]) -> str:
@@ -195,9 +196,11 @@ def _apply_replacements_in_text(anonymized_text: str, rows: list[dict[str, Any]]
     updated_text = anonymized_text
     for row in rows:
         original_tag = row["original_tag"]
-        replacement_tag = row["replacement_tag"]
-        if replacement_tag != original_tag.strip("<>"):
-            updated_text = updated_text.replace(original_tag, f"<{replacement_tag}>")
+        replacement_tag = row.get("replacement_tag")
+        if not replacement_tag:
+            continue
+        if replacement_tag != original_tag:
+            updated_text = updated_text.replace(original_tag, replacement_tag)
     return updated_text
 
 
