@@ -1,11 +1,11 @@
 
+import argparse
 import torch
-from config import report_location, anonymize_location, get_warm_engines, configs, skiplist_dir
-from config import headhunter_config
+
+from config import report_location, anonymize_location, get_warm_engines, configs, skiplist_dir, headhunter_config 
 from helpers import CreateOutputDir, LoadReports, load_skiplist_from_directory
 from anonymizers import RunIterator
 from parsing import parse_reports
-import argparse
 
 
 def main(**kwargs):
