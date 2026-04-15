@@ -150,7 +150,7 @@ headhunter_config = {
     'parser_config': {'heading_max_words': 10},
     'expected_headings': None,
     'match_threshold': 80,
-    'headings_to_anonymize': ['clinical summary', 'treatment plan'],
+    'headings_to_anonymize': None,
     'separate_headings_into_reports': False,
 }
 
@@ -161,29 +161,39 @@ headhunter_config = {
 
 person_relation_config = {
     'enabled_for_mask': 'counter',
-    'batch_prompt_template': (
-        'Task: classify each a clinical listed person mention in note.\n'
-        'Output: one JSON object only, no markdown, no prose, no code fences.\n'
-        'Schema: {"assignments":[{"person_tag":"<PERSON_2>","relation_label":"mother","related_to_patient":true,"confidence":0.92,"rationale_short":"listed in parent contact"}]}\n'
-        'Rules:\n'
-        '1) Return exactly one assignment for every provided person_tag.\n'
-        '2) Every assignment must include only these keys: person_tag, relation_label, related_to_patient, confidence, rationale_short.\n'
-        '3) person_tag must exactly match one tag from the provided targets.\n'
-        '4) Classify the exact source_text span only; do not transfer labels from nearby names/roles.\n'
-        '5) relation_label must be short lowercase text. Use relation_label=patient only when the span directly refers to the patient.\n'
-        '6) Use related_to_patient=true for meaningful patient-context connections (family, caregivers, household, teachers, classmates, peers, clinicians, counselors, coaches, mentors, supervisors, recurring social contacts, etc.).\n'
-        '7) Use related_to_patient=false and relation_label=unrelated for clearly external references (authors/public figures/celebrities).\n'
-        '8) Use related_to_patient=false and relation_label=occupation for role/job-title-only spans (e.g., dental hygienist, warehouse supervisor).\n'
-        '9) confidence must be float in [0,1].\n'
-        '10) rationale_short must be <= 10 words.\n'
-        'Targets JSON: [[TARGETS_JSON]]'
-    ),
-    'ollama': {
-        'url': 'http://localhost:11434/api/generate',
+    'llm': {
+        'provider': 'ollama',
         'model': 'gemma4:31b',
+        'api_base': 'http://localhost:11434',
+        'api_key': None,
+        'api_key_env': None,
         'timeout_seconds': 30,
         'temperature': 0.0,
+        'max_tokens': 768,
     },
+    'batch_system_prompt': (
+        'You are a clinical relation classifier for anonymized PERSON tags.\n'
+        'Return exactly one JSON object and no extra text.\n'
+        'Required schema:\n'
+        '{"assignments":[{"person_tag":"<PERSON_2>","relation_label":"mother","related_to_patient":true,"confidence":0.92,"rationale":"listed in parent contact and appears in parent contact section"}]}\n'
+        'Rules:\n'
+        '1) Return exactly one assignment for each provided person_tag.\n'
+        '2) Use only keys: person_tag, relation_label, related_to_patient, confidence, rationale.\n'
+        '3) person_tag must exactly match a provided tag.\n'
+        '4) Base decisions on the target source_text and context only.\n'
+        '5) relation_label must be concise lowercase text.\n'
+        '6) Use relation_label=patient only when the span directly references the patient.\n'
+        '7) Use related_to_patient=true for meaningful patient-context ties (family, caregivers, teachers, peers, clinicians, counselors, coaches, supervisors, recurring social contacts).\n'
+        '8) Use related_to_patient=false with relation_label=unrelated for external references and relation_label=occupation for role-only mentions.\n'
+        '9) Use related_to_patient=false with relation_label=occupation for role/job-title-only mentions (e.g., dental hygienist, warehouse supervisor).\n'
+        '10) confidence must be a numeric value in [0,1].\n'
+        '11) rationale must be plain text that is informative about the relation decision, including the key evidence from source_text/context that supports relation_label and related_to_patient.'
+    ),
+    'batch_user_prompt_template': (
+        'Classify each listed person mention in this clinical note context.\n'
+        'Return valid JSON only that matches the required schema.\n'
+        'Targets JSON: [[TARGETS_JSON]]'
+    ),
     'context_window_chars': 220,
     'confidence_threshold': 0.5,
     'max_persons_per_report': 50,

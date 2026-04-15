@@ -30,7 +30,7 @@ Masking options:
 - `--mask entity`: replaces all entities with the highest confidence entity type (default)
 - `--mask redact`: overrides PII replacement with the generic `<REDACTED>` label
 - `--mask counter`: adds counters to the detected entity type (e.g. `<PERSON_1>`, `<ORGANIZATION_7>`, etc.) to distinguish unique entities
-    - `EXPERIMENTAL`: use `--person-relations` together with `--mask counter` to replace PERSON counters with patient-relative tags inferred by local Ollama context (e.g. `<PATIENT_MOTHER>`, `<PATIENT_COUNSELOR>`, etc.). If relation extraction is uncertain or fails, the original PERSON counter tag is preserved. Requires local Ollama installation. See `config.py` for more details.
+    - `--person-relations` flag used together with `--mask counter` will replace PERSON counters with patient-relative tags inferred by an LLM provider configured in `person_relation_config` (e.g. `<PATIENT_MOTHER_1>`, `<PATIENT_COUNSELOR_2>`, etc.). If relation extraction is uncertain or fails, the original PERSON counter tag is preserved. The default install targets local Ollama `gemma4:31b` model; additional providers are supported through `any-llm` when their dependencies are installed.
 
 
 ## Document Parsing with Headhunter

@@ -1,22 +1,115 @@
-"""Relation-aware PERSON tag replacement using context inference via local Ollama."""
+"""Relation-aware PERSON tag replacement using structured provider-agnostic LLM calls."""
 
 import json
+import os
 import re
 from collections import Counter
 from typing import Any
 
-import requests
+from any_llm import completion
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 
 PERSON_TAG_PATTERN = re.compile(r"<PERSON_(\d+)>")
 PROMPT_TARGETS_PLACEHOLDER = "[[TARGETS_JSON]]"
+MAX_RELATION_RETRIES = 1
 
 
-def _require_key(mapping: dict[str, Any], key: str) -> Any:
-    """Return mapping[key] or raise a clear ValueError for missing config."""
-    if key not in mapping:
-        raise ValueError(f"Missing required config key: {key}")
-    return mapping[key]
+class RelationRequestError(RuntimeError):
+    """Raised when an LLM request cannot be completed."""
+
+
+class RelationParseError(ValueError):
+    """Raised when structured LLM output cannot be validated."""
+
+
+class RelationProviderConfig(BaseModel):
+    """LLM provider settings for person relation extraction."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    provider: str = Field(min_length=1)
+    model: str = Field(min_length=1)
+    api_base: str | None = None
+    api_key: str | None = None
+    api_key_env: str | None = None
+    timeout_seconds: int = Field(gt=0)
+    temperature: float = Field(ge=0.0, le=2.0)
+    max_tokens: int | None = Field(default=None, gt=0)
+
+
+class RelationRuntimeConfig(BaseModel):
+    """Top-level relation runtime settings."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    enabled_for_mask: str = Field(min_length=1)
+    llm: RelationProviderConfig
+    batch_system_prompt: str = Field(min_length=1)
+    batch_user_prompt_template: str = Field(min_length=1)
+    context_window_chars: int = Field(gt=0)
+    confidence_threshold: float = Field(ge=0.0, le=1.0)
+    max_persons_per_report: int = Field(gt=0)
+    batch_size: int = Field(gt=0)
+
+
+class RelationTargetPayload(BaseModel):
+    """Per-target payload sent to the LLM."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    person_tag: str
+    source_text: str
+    context: str
+
+    @field_validator("person_tag")
+    @classmethod
+    def _validate_person_tag(cls, value: str) -> str:
+        if _parse_person_index(value) is None:
+            raise ValueError("person_tag must match <PERSON_N>")
+        return value
+
+
+class RelationAssignment(BaseModel):
+    """One relation assignment returned by the LLM."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    person_tag: str
+    relation_label: str = Field(min_length=1)
+    related_to_patient: bool = Field(strict=True)
+    confidence: float = Field(ge=0.0, le=1.0)
+    rationale: str = Field(
+        min_length=1,
+        description=(
+            "Informative rationale explaining the relation decision using evidence from context"
+        ),
+    )
+
+    @field_validator("person_tag")
+    @classmethod
+    def _validate_person_tag(cls, value: str) -> str:
+        if _parse_person_index(value) is None:
+            raise ValueError("person_tag must match <PERSON_N>")
+        return value
+
+
+class RelationBatchResponse(BaseModel):
+    """Structured relation response from the LLM."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    assignments: list[RelationAssignment]
+
+
+def _load_relation_runtime_config(relation_config: dict[str, Any]) -> RelationRuntimeConfig:
+    """Validate relation config once and enforce required prompt placeholders."""
+    config = RelationRuntimeConfig.model_validate(relation_config)
+    if PROMPT_TARGETS_PLACEHOLDER not in config.batch_user_prompt_template:
+        raise ValueError(
+            "Config key 'batch_user_prompt_template' must include [[TARGETS_JSON]] placeholder"
+        )
+    return config
 
 
 def _parse_person_index(tag: str | None) -> int | None:
@@ -66,83 +159,188 @@ def _find_context_span(
     return start, end, text[left:right]
 
 
-def _build_batch_relation_prompt(
+def _build_batch_relation_messages(
     target_rows: list[dict[str, Any]],
-    relation_config: dict[str, Any],
-) -> str:
-    """Build one batch prompt using the configured template and target payload."""
-    target_payload: list[dict[str, str]] = []
+    relation_config: RelationRuntimeConfig,
+    retry_error: str | None = None,
+) -> list[dict[str, str]]:
+    """Build chat messages with separate system and user prompts."""
+    target_payload: list[RelationTargetPayload] = []
     for row in target_rows:
         target_payload.append(
-            {
-                "person_tag": str(row["original_tag"]),
-                "source_text": str(row.get("source_text")),
-                "context": str(row.get("context")),
-            }
+            RelationTargetPayload(
+                person_tag=str(row["original_tag"]),
+                source_text=str(row.get("source_text")),
+                context=str(row.get("context")),
+            )
         )
 
-    targets_json = json.dumps(target_payload, ensure_ascii=True, separators=(",", ":"))
-    template = _require_key(relation_config, "batch_prompt_template")
-    if not isinstance(template, str) or not template.strip():
-        raise ValueError("Config key 'batch_prompt_template' must be a non-empty string")
-    if PROMPT_TARGETS_PLACEHOLDER not in template:
-        raise ValueError(
-            "Config key 'batch_prompt_template' must include [[TARGETS_JSON]] placeholder"
-        )
-    return template.replace(PROMPT_TARGETS_PLACEHOLDER, targets_json)
-
-
-def _call_ollama(prompt: str, relation_config: dict[str, Any]) -> dict[str, Any]:
-    """Call Ollama /api/generate and parse the top-level JSON object from response."""
-    ollama_cfg = _require_key(relation_config, "ollama")
-    if not isinstance(ollama_cfg, dict):
-        raise ValueError("Config key 'ollama' must be a mapping")
-
-    model = _require_key(ollama_cfg, "model")
-    url = _require_key(ollama_cfg, "url")
-    timeout_seconds = _require_key(ollama_cfg, "timeout_seconds")
-    temperature = _require_key(ollama_cfg, "temperature")
-
-    payload: dict[str, Any] = {
-        "model": model,
-        "prompt": prompt,
-        "stream": False,
-        "think": False,
-        "format": "json",
-        "options": {
-            "temperature": temperature,
-        },
-    }
-
-    response = requests.post(
-        url,
-        json=payload,
-        timeout=timeout_seconds,
+    targets_json = json.dumps(
+        [item.model_dump(mode="json") for item in target_payload],
+        ensure_ascii=True,
+        separators=(",", ":"),
     )
-    response.raise_for_status()
-    body = response.json()
+    user_prompt = relation_config.batch_user_prompt_template.replace(
+        PROMPT_TARGETS_PLACEHOLDER, targets_json
+    )
 
-    if "response" not in body:
-        raise ValueError("Missing response field from Ollama")
+    if retry_error:
+        expected_tags = [str(row["original_tag"]) for row in target_rows]
+        expected_tags_json = json.dumps(expected_tags, ensure_ascii=True, separators=(",", ":"))
+        user_prompt = (
+            f"{user_prompt}\n\n"
+            "Your prior response was invalid JSON/schema for this task. "
+            f"Validation error: {retry_error}\n"
+            f"Return exactly one assignment for each of these person_tag values: {expected_tags_json}."
+        )
 
-    text = (body.get("response") or "").strip()
+    return [
+        {"role": "system", "content": relation_config.batch_system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def _extract_json_object_text(text: str) -> str:
+    """Extract first top-level JSON object boundaries from raw text."""
     start = text.find("{")
     end = text.rfind("}")
     if start < 0 or end < 0 or end < start:
         raise ValueError("Model output does not contain JSON object")
-
-    parsed = json.loads(text[start : end + 1])
-    if not isinstance(parsed, dict):
-        raise ValueError("Model output JSON is not an object")
-    return parsed
+    return text[start : end + 1]
 
 
-def _parse_batch_assignments(parsed: dict[str, Any]) -> list[dict[str, Any]]:
-    """Extract the assignments list from parsed model output."""
-    assignments = parsed.get("assignments")
-    if not isinstance(assignments, list):
-        raise ValueError("Batch response missing assignments list")
-    return [item for item in assignments if isinstance(item, dict)]
+def _extract_message_text(content: Any) -> str:
+    """Normalize provider message content into plain text."""
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        fragments: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str):
+                    fragments.append(text)
+        return "".join(fragments)
+
+    return ""
+
+
+def _extract_parsed_relation_response(response: Any) -> RelationBatchResponse:
+    """Parse completion output into validated RelationBatchResponse."""
+    choices = getattr(response, "choices", None)
+    if not isinstance(choices, list) or not choices:
+        raise RelationParseError("LLM response missing choices")
+
+    message = getattr(choices[0], "message", None)
+    if message is None:
+        raise RelationParseError("LLM response missing message")
+
+    parsed = getattr(message, "parsed", None)
+    if isinstance(parsed, RelationBatchResponse):
+        return parsed
+
+    if isinstance(parsed, dict):
+        try:
+            return RelationBatchResponse.model_validate(parsed)
+        except ValidationError as exc:
+            raise RelationParseError(f"Invalid parsed response: {exc}") from exc
+
+    text = _extract_message_text(getattr(message, "content", ""))
+    json_text = _extract_json_object_text(text.strip())
+    try:
+        return RelationBatchResponse.model_validate_json(json_text)
+    except ValidationError as exc:
+        raise RelationParseError(f"Invalid JSON response: {exc}") from exc
+
+
+def _call_relation_model(
+    messages: list[dict[str, str]],
+    relation_config: RelationRuntimeConfig,
+) -> RelationBatchResponse:
+    """Call configured provider through any-llm and return validated response model."""
+    llm_cfg = relation_config.llm
+
+    api_key = llm_cfg.api_key
+    if llm_cfg.api_key_env:
+        api_key = os.getenv(llm_cfg.api_key_env, api_key)
+
+    call_kwargs: dict[str, Any] = {
+        "model": llm_cfg.model,
+        "provider": llm_cfg.provider,
+        "messages": messages,
+        "temperature": llm_cfg.temperature,
+    }
+
+    if llm_cfg.max_tokens is not None:
+        call_kwargs["max_tokens"] = llm_cfg.max_tokens
+    if llm_cfg.api_base:
+        call_kwargs["api_base"] = llm_cfg.api_base
+    if api_key:
+        call_kwargs["api_key"] = api_key
+
+    call_kwargs["client_args"] = {"timeout": llm_cfg.timeout_seconds}
+
+    try:
+        response = completion(response_format=RelationBatchResponse, **call_kwargs)
+    except Exception:
+        try:
+            response = completion(**call_kwargs)
+        except Exception as exc:
+            raise RelationRequestError(f"LLM request failed: {exc}") from exc
+
+    try:
+        return _extract_parsed_relation_response(response)
+    except RelationParseError:
+        raise
+    except Exception as exc:
+        raise RelationParseError(f"Could not parse response: {exc}") from exc
+
+
+def _assignments_by_tag(
+    batch_response: RelationBatchResponse,
+    expected_tags: list[str],
+) -> dict[str, RelationAssignment]:
+    """Map validated assignments by person_tag and enforce exact coverage."""
+    by_tag: dict[str, RelationAssignment] = {}
+
+    for assignment in batch_response.assignments:
+        if assignment.person_tag in by_tag:
+            raise RelationParseError(f"Duplicate assignment for {assignment.person_tag}")
+        by_tag[assignment.person_tag] = assignment
+
+    expected = set(expected_tags)
+    missing = [tag for tag in expected_tags if tag not in by_tag]
+    extras = sorted(tag for tag in by_tag if tag not in expected)
+    if missing or extras:
+        raise RelationParseError(
+            f"Assignment coverage mismatch. missing={missing}, extras={extras}"
+        )
+
+    return by_tag
+
+
+def _infer_chunk_assignments(
+    chunk: list[dict[str, Any]],
+    relation_config: RelationRuntimeConfig,
+) -> dict[str, RelationAssignment]:
+    """Run relation inference with one retry on request/parse failures."""
+    last_exc: Exception | None = None
+
+    for attempt in range(MAX_RELATION_RETRIES + 1):
+        retry_error = str(last_exc) if attempt > 0 and last_exc else None
+        messages = _build_batch_relation_messages(chunk, relation_config, retry_error=retry_error)
+        expected_tags = [str(row["original_tag"]) for row in chunk]
+
+        try:
+            parsed_response = _call_relation_model(messages, relation_config)
+            return _assignments_by_tag(parsed_response, expected_tags)
+        except (RelationParseError, RelationRequestError) as exc:
+            last_exc = exc
+
+    if last_exc is None:
+        raise RelationRequestError("Relation inference failed without an exception")
+    raise last_exc
 
 
 def _normalize_relation_label(raw_label: str | None) -> str | None:
@@ -162,19 +360,6 @@ def _normalize_relation_label(raw_label: str | None) -> str | None:
         normalized = f"patient_{normalized}"
 
     return normalized.upper()
-
-
-def _parse_bool(value: Any) -> bool | None:
-    """Parse flexible truthy/falsy values from model output."""
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        lowered = value.strip().lower()
-        if lowered in {"true", "yes", "1"}:
-            return True
-        if lowered in {"false", "no", "0"}:
-            return False
-    return None
 
 
 def _apply_numbered_generated_tags(rows: list[dict[str, Any]]) -> None:
@@ -220,11 +405,13 @@ def extract_and_apply_person_relations(
     if not ordered_tags:
         return anonymized_text, []
 
+    runtime_config = _load_relation_runtime_config(relation_config)
+
     source_lookup = _source_text_by_tag(entity_mapping)
 
-    max_persons = int(_require_key(relation_config, "max_persons_per_report"))
-    confidence_threshold = float(_require_key(relation_config, "confidence_threshold"))
-    window_chars = int(_require_key(relation_config, "context_window_chars"))
+    max_persons = runtime_config.max_persons_per_report
+    confidence_threshold = runtime_config.confidence_threshold
+    window_chars = runtime_config.context_window_chars
 
     selected_tags = ordered_tags[:max_persons]
     rows: list[dict[str, Any]] = []
@@ -241,7 +428,7 @@ def extract_and_apply_person_relations(
             "original_tag": person_tag,
             "replacement_tag": person_tag,
             "relation_label_raw": None,
-            "rationale_short": None,
+            "rationale": None,
             "confidence": 0.0,
             "status": "fallback_no_context",
             "context_start": start,
@@ -258,37 +445,27 @@ def extract_and_apply_person_relations(
         rows.append(row)
 
     if llm_target_rows:
-        batch_size = max(1, int(_require_key(relation_config, "batch_size")))
+        batch_size = max(1, int(runtime_config.batch_size))
         for i in range(0, len(llm_target_rows), batch_size):
             chunk = llm_target_rows[i : i + batch_size]
-            prompt = _build_batch_relation_prompt(chunk, relation_config)
 
             try:
-                parsed = _call_ollama(prompt, relation_config)
-                assignments = _parse_batch_assignments(parsed)
-                by_tag = {
-                    item.get("person_tag"): item
-                    for item in assignments
-                    if item.get("person_tag")
-                }
+                by_tag = _infer_chunk_assignments(chunk, runtime_config)
 
                 for row in chunk:
-                    item = by_tag.get(row["original_tag"])
-                    if item is None:
-                        row["status"] = "fallback_parse_error"
-                        continue
+                    item = by_tag[row["original_tag"]]
 
-                    raw_label = item.get("relation_label")
-                    related = _parse_bool(item.get("related_to_patient"))
-                    confidence = float(item.get("confidence", 0.0))
+                    raw_label = item.relation_label
+                    related = item.related_to_patient
+                    confidence = item.confidence
                     normalized = _normalize_relation_label(raw_label)
-                    rationale_short = item.get("rationale_short")
+                    rationale = item.rationale
 
                     row["relation_label_raw"] = raw_label
-                    row["rationale_short"] = rationale_short
+                    row["rationale"] = rationale
                     row["confidence"] = confidence
 
-                    if related is False:
+                    if not related:
                         row["replacement_tag"] = row["original_tag"]
                         row["status"] = "unrelated_kept"
                     elif normalized and confidence >= confidence_threshold:
@@ -297,7 +474,11 @@ def extract_and_apply_person_relations(
                         row["status"] = "resolved"
                     else:
                         row["status"] = "fallback_low_confidence"
-            except Exception as exc:
+            except RelationParseError as exc:
+                for row in chunk:
+                    row["status"] = "fallback_parse_error"
+                    row["error"] = str(exc)
+            except RelationRequestError as exc:
                 for row in chunk:
                     row["status"] = "fallback_request_error"
                     row["error"] = str(exc)
