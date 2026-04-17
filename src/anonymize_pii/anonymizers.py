@@ -1,7 +1,7 @@
 
 from config import configs, GlinerRecognizer, Entities, timewords, generalwords, anonymize_location, replacement
 from helpers import PIIFilter, CreateOutputDir, SaveOutputs
-from person_relations import extract_and_apply_person_relations
+from person_relations import extract_and_apply_person_relations, standardize_person_relation_tags
 
 import os
 import json
@@ -289,7 +289,13 @@ def RunIterator(
                     entity_mapping=entity_mapping,
                     relation_config=rel_cfg,
                 )
+                anon_report, postprocess_changes = standardize_person_relation_tags(
+                    anonymized_text=anon_report,
+                    relation_rows=relation_rows,
+                    relation_config=rel_cfg,
+                )
                 doc_data['PersonRelationMapping'] = relation_rows
+                doc_data['PersonRelationPostprocessingChanges'] = postprocess_changes
             
         # Handle Output Logic
         pii_results_serialized = [result.to_dict() for result in results]

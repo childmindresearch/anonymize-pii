@@ -168,9 +168,11 @@ person_relation_config = {
         'api_key': None,
         'api_key_env': None,
         'timeout_seconds': 30,
+        'reasoning_effort': 'none',
         'temperature': 0.0,
         'max_tokens': 768,
     },
+    # Relation-aware tagging instructions for batch classification of PERSON tags.
     'batch_system_prompt': (
         'You are a clinical relation classifier for anonymized PERSON tags.\n'
         'Return exactly one JSON object and no extra text.\n'
@@ -198,5 +200,28 @@ person_relation_config = {
     'confidence_threshold': 0.5,
     'max_persons_per_report': 50,
     'batch_size': 5,
+    # Post-processing instructions for standardizing relation-aware PERSON tags after initial classification.
+    'postprocess_system_prompt': (
+        'You standardize relation-aware person tags for one anonymized clinical document.\n'
+        'Return exactly one JSON object and no extra text.\n'
+        'Required schema:\n'
+        '{"assignments":[{"original_tag":"<PERSON_2>","keep_current_tag":false,"standardized_tag_base":"PATIENT_MOTHER","entity_group":"mother_1","rationale":"same person as parent contact mention"}]}\n'
+        'Rules:\n'
+        '1) Return exactly one assignment for each provided original_tag.\n'
+        '2) Use only keys: original_tag, keep_current_tag, standardized_tag_base, entity_group, rationale.\n'
+        '3) standardized_tag_base must be PATIENT or PATIENT_<RELATION>, uppercase, no brackets, no numeric suffix.\n'
+        '4) Use the same entity_group for aliases of the same person (e.g., full name and first name).\n'
+        '5) Use different entity_group values only when evidence clearly indicates distinct people.\n'
+        '6) If relation labels are semantically equivalent but differ by specificity, pick the more specific supported label.\n'
+        '7) If uncertain, set keep_current_tag=true.\n'
+        '8) Base decisions only on this document\'s source_text, current_tag, relation_label_raw, and rationale evidence.'
+    ),
+    'postprocess_user_prompt_template': (
+        'Standardize person relation tags for this document.\n'
+        'Return valid JSON only that matches the required schema.\n'
+        'Rows JSON: [[POSTPROCESS_ROWS_JSON]]'
+    ),
+    'postprocess_batch_size': 10,
+    'postprocess_timeout_seconds': 30,
 }
 

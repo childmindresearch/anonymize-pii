@@ -30,7 +30,13 @@ Masking options:
 - `--mask entity`: replaces all entities with the highest confidence entity type (default)
 - `--mask redact`: overrides PII replacement with the generic `<REDACTED>` label
 - `--mask counter`: adds counters to the detected entity type (e.g. `<PERSON_1>`, `<ORGANIZATION_7>`, etc.) to distinguish unique entities
-    - `--person-relations` flag used together with `--mask counter` will replace PERSON counters with patient-relative tags inferred by an LLM provider configured in `person_relation_config` (e.g. `<PATIENT_MOTHER_1>`, `<PATIENT_COUNSELOR_2>`, etc.). If relation extraction is uncertain or fails, the original PERSON counter tag is preserved. The default install targets local Ollama `gemma4:31b` model; additional providers are supported through `any-llm` when their dependencies are installed.
+        - `--person-relations` flag used together with `--mask counter` first replaces PERSON counters with patient-relative tags inferred by an LLM provider configured in `person_relation_config` (e.g. `<PATIENT_MOTHER_1>`, `<PATIENT_COUNSELOR_2>`, etc.).
+        - A second relation postprocessing stage then standardizes those generated tags within each document using the same configured model. This stage can merge aliases that refer to the same person (for example full-name and first-name patient mentions) and remove unnecessary counters when only one distinct person exists for a relation base.
+        - If postprocessing is uncertain or fails, relation-stage tags are kept unchanged.
+        - `Iterator.json` includes both stage artifacts when enabled:
+            - `PersonRelationMapping`: relation-stage replacements (kept immutable)
+            - `PersonRelationPostprocessingChanges`: per-tag postprocessing review log with `pre_postprocess_tag`, `postprocess_tag`, and `changed` flag
+        - The default install targets local Ollama `gemma4:31b` model; additional providers are supported through `any-llm` when their dependencies are installed.
 
 
 ## Document Parsing with Headhunter
